@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Real-time Microphone Oscilloscope</title>
+  <style>
+    :root{
+      --bg:#0f1720;
+      --panel:#111827;
+      --accent:#00d1ff;
+      --muted:#9ca3af;
+      --meter:#22c55e;
+    }
+    html,body{height:100%;margin:0;background:linear-gradient(180deg,var(--bg),#071020);color:#e6eef6;font-family:Inter,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;}
+    .wrap{max-width:1100px;margin:28px auto;padding:18px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,0.6);}
+    header{display:flex;align-items:center;gap:18px;margin-bottom:14px}
+    h1{font-size:18px;margin:0}
+    .controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    button{background:var(--accent);color:#022;text-transform:uppercase;font-weight:600;padding:8px 12px;border-radius:8px;border:0;cursor:pointer}
+    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted);text-transform:none;padding:6px 10px}
+    .row{display:flex;gap:12px;align-items:center}
+    .slider{display:inline-flex;flex-direction:column;gap:6px}
+    label{font-size:12px;color:var(--muted)}
+    input[type="range"]{width:200px}
+    canvas{width:100%;height:360px;border-radius:8px;background:linear-gradient(180deg,#041021, #021018);display:block}
+    .status{font-size:13px;color:var(--muted);margin-left:auto}
+    .meter{height:10px;background:rgba(255,255,255,0.04);border-radius:999px;overflow:hidden;width:160px}
+    .meter-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--meter),#7ee787)}
+    footer{margin-top:12px;font-size:13px;color:var(--muted)}
+    .small{font-size:12px;color:var(--muted)}
+    .flex-gap{display:flex;gap:12px;align-items:center}
+    @media (max-width:720px){input[type="range"]{width:140px}; canvas{height:240px}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Real-time Microphone Oscilloscope</h1>
+      <div class="controls">
+        <button id="startBtn">Start</button>
+        <button id="stopBtn" class="secondary" disabled>Stop</button>
+        <div class="status small" id="status">idle</div>
+      </div>
+    </header>
+
+    <canvas id="osc" width="1200" height="360"></canvas>
+
+    <div style="display:flex;gap:18px;margin-top:12px;flex-wrap:wrap;align-items:center">
+      <div class="slider">
+        <label for="gain">Input gain: <span id="gainVal">1.0</span>x</label>
+        <input type="range" id="gain" min="0" max="4" step="0.01" value="1">
+      </div>
+
+      <div class="slider">
+        <label for="smoothing">Smoothing (analyser): <span id="smoothVal">0.8</span></label>
+        <input type="range" id="smoothing" min="0" max="0.99" step="0.01" value="0.8">
+      </div>
+
+      <div class="slider">
+        <label for="fft">Analyser size: <span id="fftVal">2048</span></label>
+        <select id="fft" style="padding:6px;border-radius:6px;background:transparent;color:inherit;border:1px solid rgba(255,255,255,0.05)">
+          <option value="1024">1024</option>
+          <option value="2048" selected>2048</option>
+          <option value="4096">4096</option>
+          <option value="8192">8192</option>
+        </select>
+      </div>
+
+      <div class="flex-gap">
+        <label class="small">RMS level</label>
+        <div class="meter" title="Root-mean-square level">
+          <div class="meter-fill" id="meterFill"></div>
+        </div>
+      </div>
+
+      <div class="small" id="info">—</div>
+    </div>
+
+    <footer>
+      Click Start, allow microphone access, then speak to see the waveform. Built with Web Audio API.
+    </footer>
+  </div>
+
+  <script>
+    // Elements
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const statusEl = document.getElementById('status');
+    const gainSlider = document.getElementById('gain');
+    const gainVal = document.getElementById('gainVal');
+    const smoothingSlider = document.getElementById('smoothing');
+    const smoothVal = document.getElementById('smoothVal');
+    const fftSelect = document.getElementById('fft');
+    const fftVal = document.getElementById('fftVal');
+    const meterFill = document.getElementById('meterFill');
+    const infoEl = document.getElementById('info');
+
+    // Canvas setup
+    const canvas = document.getElementById('osc');
+    const ctx = canvas.getContext('2d');
+    let width = canvas.width;
+    let height = canvas.height;
+
+    // Audio nodes and state
+    let audioCtx = null;
+    let analyser = null;
+    let sourceNode = null;
+    let gainNode = null;
+    let mediaStream = null;
+    let animationId = null;
+    let timeDomainData = null;
+
+    // Helpers
+    function setStatus(s){ statusEl.textContent = s; }
+
+    function resizeCanvasToDisplaySize() {
+      // Keep high-res canvas backing store
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      const w = Math.max(300, Math.floor(rect.width * dpr));
+      const h = Math.max(120, Math.floor(rect.height * dpr));
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+        width = w;
+        height = h;
+      }
+    }
+
+    function drawGrid() {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 1;
+      const lines = 8;
+      for (let i = 1; i < lines; i++) {
+        const x = (width / lines) * i;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+      for (let i = 1; i < lines; i++) {
+        const y = (height / lines) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(width, y);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    function drawWaveform() {
+      if (!analyser) return;
+      resizeCanvasToDisplaySize();
+
+      analyser.getFloatTimeDomainData(timeDomainData);
+
+      // clear
+      ctx.clearRect(0, 0, width, height);
+
+      // grid and midline
+      drawGrid();
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, height/2);
+      ctx.lineTo(width, height/2);
+      ctx.stroke();
+
+      // waveform
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(0,209,255,0.95)';
+      ctx.beginPath();
+      const bufferLength = timeDomainData.length;
+      for (let i = 0; i < bufferLength; i++) {
+        const x = (i / (bufferLength - 1)) * width;
+        // data is in [-1..1] — convert to canvas Y
+        const v = timeDomainData[i];
+        const y = (1 - (v + 1) / 2) * height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // soft glow for waveform (duplicate with blur)
+      ctx.globalAlpha = 0.08;
+      ctx.lineWidth = 8;
+      ctx.strokeStyle = 'rgba(0,209,255,0.9)';
+      ctx.beginPath();
+      for (let i = 0; i < bufferLength; i++) {
+        const x = (i / (bufferLength - 1)) * width;
+        const v = timeDomainData[i];
+        const y = (1 - (v + 1) / 2) * height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1.0;
+
+      // RMS level
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) sum += timeDomainData[i] * timeDomainData[i];
+      const rms = Math.sqrt(sum / bufferLength);
+      const pct = Math.min(1, rms * 2.5); // scale for visible meter
+      meterFill.style.width = (pct * 100) + '%';
+
+      // info
+      if (audioCtx) {
+        infoEl.textContent = `sampleRate: ${audioCtx.sampleRate} Hz • buffer: ${bufferLength}`;
+      }
+
+      // schedule next frame
+      animationId = requestAnimationFrame(drawWaveform);
+    }
+
+    async function startCapture() {
+      if (audioCtx && audioCtx.state === 'running') {
+        setStatus('already running');
+        return;
+      }
+      try {
+        setStatus('requesting microphone...');
+        // request mic access (user gesture required; Start button click ensures that)
+        const stream = await navigator.mediaDevices.getUserMedia({audio: true, video:false});
+        mediaStream = stream;
+
+        // create audio graph
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Some browsers (Safari) require resume on user gesture — ensure running
+        if (audioCtx.state === 'suspended') {
+          await audioCtx.resume();
+        }
+
+        sourceNode = audioCtx.createMediaStreamSource(stream);
+        gainNode = audioCtx.createGain();
+        analyser = audioCtx.createAnalyser();
+
+        analyser.fftSize = parseInt(fftSelect.value, 10);
+        analyser.smoothingTimeConstant = parseFloat(smoothingSlider.value || 0.8);
+
+        sourceNode.connect(gainNode);
+        gainNode.connect(analyser);
+
+        // set initial gain
+        gainNode.gain.value = parseFloat(gainSlider.value);
+
+        // buffer to hold time domain data
+        timeDomainData = new Float32Array(analyser.fftSize);
+
+        // UI updates
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        setStatus('listening — speak now');
+
+        // start draw loop
+        cancelAnimationFrame(animationId);
+        drawWaveform();
+      } catch (err) {
+        console.error('microphone error', err);
+        setStatus('microphone access denied or error');
+        alert('Could not access microphone: ' + err.message);
+      }
+    }
+
+    function stopCapture() {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+        mediaStream = null;
+      }
+      if (audioCtx) {
+        try { audioCtx.close(); } catch(e) { /* ignore */ }
+        audioCtx = null;
+        analyser = null;
+        sourceNode = null;
+        gainNode = null;
+      }
+      if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
+      }
+      // clear canvas
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      setStatus('stopped');
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      infoEl.textContent = '—';
+      meterFill.style.width = '0%';
+    }
+
+    // Event listeners
+    startBtn.addEventListener('click', async () => {
+      // Start must be triggered by user gesture; ensures permissions and AudioContext resume work.
+      await startCapture();
+    });
+
+    stopBtn.addEventListener('click', () => {
+      stopCapture();
+    });
+
+    gainSlider.addEventListener('input', () => {
+      const v = parseFloat(gainSlider.value);
+      gainVal.textContent = v.toFixed(2);
+      if (gainNode) gainNode.gain.value = v;
+    });
+
+    smoothingSlider.addEventListener('input', () => {
+      const v = parseFloat(smoothingSlider.value);
+      smoothVal.textContent = v.toFixed(2);
+      if (analyser) analyser.smoothingTimeConstant = v;
+    });
+
+    fftSelect.addEventListener('change', () => {
+      const val = parseInt(fftSelect.value, 10);
+      fftVal.textContent = val;
+      if (analyser) {
+        // Changing fftSize requires creating a new Float32Array for the new size
+        analyser.fftSize = val;
+        timeDomainData = new Float32Array(analyser.fftSize);
+      }
+    });
+
+    // On page visibility change, stop audio if hidden to save resources
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') {
+        // keep state but stop drawing to save CPU
+        if (animationId) cancelAnimationFrame(animationId);
+        animationId = null;
+      } else {
+        if (analyser && !animationId) drawWaveform();
+      }
+    });
+
+    // Resize handling to maintain crisp canvas
+    window.addEventListener('resize', () => {
+      // will be applied on next draw
+      if (!animationId && analyser) drawWaveform();
+    });
+
+    // Show initial control values
+    gainVal.textContent = parseFloat(gainSlider.value).toFixed(2);
+    smoothVal.textContent = parseFloat(smoothingSlider.value).toFixed(2);
+    fftVal.textContent = fftSelect.value;
+
+    // Graceful unload: stop microphone tracks
+    window.addEventListener('beforeunload', () => {
+      if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+      if (audioCtx) try { audioCtx.close(); } catch(e){}
+    });
+  </script>
+</body>
+</html>
