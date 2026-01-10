@@ -1,208 +1,766 @@
 <!doctype html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Web Oscilloscope</title>
-
-<style>
-body {
-  margin: 0;
-  background: #0b0f14;
-  color: #e6edf3;
-  font-family: system-ui, sans-serif;
-  display: grid;
-  place-items: center;
-  min-height: 100vh;
-}
-.wrap {
-  width: min(1000px, 92vw);
-  background: #0f1620;
-  border: 1px solid #1f2a37;
-  border-radius: 16px;
-  padding: 16px;
-}
-h1 { margin: 0 0 8px; font-size: 18px; }
-canvas {
-  width: 100%;
-  height: 320px;
-  background: #071018;
-  border-radius: 12px;
-}
-.controls {
-  display: grid;
-  gap: 12px;
-  margin-top: 14px;
-}
-button, select, input {
-  background: #111b28;
-  color: #e6edf3;
-  border: 1px solid #2b3a4e;
-  border-radius: 10px;
-  padding: 8px 10px;
-}
-.row { display: flex; gap: 10px; flex-wrap: wrap; }
-.stat {
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
-  color: #9fb0c0;
-}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Web Audio Oscilloscope: Mic + Tone + Files</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: #0b0f14;
+      color: #e6edf3;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+    }
+    .wrap {
+      width: min(1100px, 92vw);
+      background: #0f1620;
+      border: 1px solid #1f2a37;
+      border-radius: 16px;
+      padding: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+    h1 { margin: 0 0 6px; font-size: 18px; font-weight: 700; }
+    p { margin: 0 0 14px; font-size: 13px; color: #9fb0c0; line-height: 1.35; }
+    canvas {
+      width: 100%;
+      height: 340px;
+      display: block;
+      border-radius: 12px;
+      background: #071018;
+    }
+    .row {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: 1fr;
+      margin-top: 14px;
+    }
+    @media (min-width: 950px) {
+      .row { grid-template-columns: 1.2fr 0.8fr; }
+    }
+    .panel {
+      background: #0b121b;
+      border: 1px solid #1f2a37;
+      border-radius: 12px;
+      padding: 12px;
+    }
+    .controls { display: grid; gap: 10px; }
+    .btns { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    button {
+      appearance: none;
+      border: 1px solid #2b3a4e;
+      background: #111b28;
+      color: #e6edf3;
+      padding: 10px 12px;
+      border-radius: 10px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    button.primary { border-color: #3b82f6; }
+    button.warn { border-color: #f59e0b; }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 12px;
+      color: #9fb0c0;
+    }
+    input[type="range"] { width: 100%; }
+    input[type="number"], select, input[type="file"] {
+      width: 100%;
+      background: #0f1620;
+      color: #e6edf3;
+      border: 1px solid #2b3a4e;
+      border-radius: 10px;
+      padding: 8px 10px;
+      box-sizing: border-box;
+    }
+    .grid2 { display: grid; gap: 10px; grid-template-columns: 1fr 1fr; }
+    .stat { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #c5d1de; }
+    .hint { font-size: 12px; color: #8aa0b5; line-height: 1.35; }
+    .tiny { font-size: 11px; color: #7f93a8; }
+    .hr { height: 1px; background: #1f2a37; margin: 8px 0; }
+  </style>
 </head>
-
 <body>
-<div class="wrap">
-  <h1>Audio Oscilloscope</h1>
+  <div class="wrap">
+    <h1>Oscilloscope: Microphone + Tone Generator + Audio Files</h1>
+    <p>
+      Start the microphone to see your voice waveform. Start a tone (sine/square) to hear and see test signals.
+      Load an audio file to play it through the same scope. (Mic requires HTTPS or localhost.)
+    </p>
 
-  <canvas id="scope"></canvas>
-
-  <div class="controls">
-    <div class="row">
-      <select id="source">
-        <option value="mic">Microphone</option>
-        <option value="tone">Tone Generator</option>
-        <option value="audio1">Audio file 1</option>
-        <option value="audio2">Audio file 2</option>
-        <option value="audio3">Audio file 3</option>
-      </select>
-
-      <select id="waveType">
-        <option value="sine">Sine</option>
-        <option value="square">Square</option>
-      </select>
-
-      <input id="freq" type="number" value="440" min="20" max="20000">
-    </div>
+    <canvas id="scope" aria-label="oscilloscope"></canvas>
 
     <div class="row">
-      <button id="start">Start</button>
-      <button id="stop">Stop</button>
-    </div>
+      <div class="panel">
+        <div class="controls">
 
-    <div class="stat" id="status">Status: idle</div>
+          <div class="btns">
+            <button id="startMicBtn" class="primary">Start Mic</button>
+            <button id="stopMicBtn" disabled>Stop Mic</button>
+
+            <button id="startToneBtn" class="warn">Start Tone</button>
+            <button id="stopToneBtn" disabled>Stop Tone</button>
+
+            <button id="playFileBtn">Play File</button>
+            <button id="stopFileBtn" disabled>Stop File</button>
+
+            <button id="stopAllBtn">Stop All</button>
+          </div>
+
+          <div class="grid2">
+            <label>
+              Scope input
+              <select id="scopeSource">
+                <option value="mix">Mix (mic + tone + file)</option>
+                <option value="mic">Mic only</option>
+                <option value="tone">Tone only</option>
+                <option value="file">File only</option>
+              </select>
+            </label>
+
+            <label>
+              Output (speakers)
+              <select id="monitorMode">
+                <option value="tone_file">Play tone + file</option>
+                <option value="file_only">Play file only</option>
+                <option value="tone_only">Play tone only</option>
+                <option value="mute">Mute all</option>
+              </select>
+              <div class="tiny">Mic monitoring is off by default to avoid feedback.</div>
+            </label>
+          </div>
+
+          <div class="hr"></div>
+
+          <div class="grid2">
+            <label>
+              Tone waveform
+              <select id="waveType">
+                <option value="sine">Sine</option>
+                <option value="square">Square</option>
+              </select>
+            </label>
+
+            <label>
+              Tone frequency (Hz)
+              <input id="freq" type="number" min="20" max="20000" step="1" value="440" />
+              <div class="stat"><span id="freqVal">440</span> Hz</div>
+            </label>
+          </div>
+
+          <div class="grid2">
+            <label>
+              Tone volume
+              <input id="toneVol" type="range" min="0" max="1" step="0.01" value="0.25" />
+              <div class="stat"><span id="toneVolVal">0.25</span></div>
+            </label>
+
+            <label>
+              File volume
+              <input id="fileVol" type="range" min="0" max="1" step="0.01" value="0.7" />
+              <div class="stat"><span id="fileVolVal">0.70</span></div>
+            </label>
+          </div>
+
+          <label>
+            Choose audio file (mp3/wav/aac/etc.)
+            <input id="audioFile" type="file" accept="audio/*" />
+          </label>
+
+          <div class="hr"></div>
+
+          <div class="grid2">
+            <label>
+              Time scale (samples shown)
+              <input id="timeScale" type="range" min="256" max="4096" step="128" value="2048" />
+              <div class="stat"><span id="timeScaleVal">2048</span> samples</div>
+            </label>
+
+            <label>
+              Smoothing (0–0.9)
+              <input id="smooth" type="range" min="0" max="0.9" step="0.05" value="0.15" />
+              <div class="stat"><span id="smoothVal">0.15</span></div>
+            </label>
+          </div>
+
+          <div class="grid2">
+            <label>
+              Visual gain
+              <input id="gain" type="range" min="0.5" max="8" step="0.1" value="1.8" />
+              <div class="stat">×<span id="gainVal">1.8</span></div>
+            </label>
+
+            <label>
+              Output volume (monitor)
+              <input id="outVol" type="range" min="0" max="1" step="0.01" value="0.6" />
+              <div class="stat"><span id="outVolVal">0.60</span></div>
+            </label>
+          </div>
+
+          <div class="hint">
+            If mic permission fails when opened as a local file, run a local server:
+            <code>python3 -m http.server</code> and open <code>http://localhost:8000</code>.
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="stat" id="status">Status: idle</div>
+        <div class="stat" id="level">Level: —</div>
+        <div class="hint" style="margin-top:10px;">
+          Tips:
+          <ul>
+            <li>Use “Tone only” to verify audio output.</li>
+            <li>For stable-looking waves, try 220–880 Hz.</li>
+            <li>If you hear feedback, set Output to “Play tone + file” (default) and keep mic monitoring off.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
   </div>
-</div>
 
-<!-- Hidden audio players -->
-<audio id="audio1" src="audio1.mp3" crossorigin="anonymous"></audio>
-<audio id="audio2" src="audio2.mp3" crossorigin="anonymous"></audio>
-<audio id="audio3" src="audio3.mp3" crossorigin="anonymous"></audio>
+  <script>
+    // -----------------------------
+    // Utility / DOM
+    // -----------------------------
+    const $ = (id) => document.getElementById(id);
 
-<script>
-const canvas = document.getElementById("scope");
-const ctx = canvas.getContext("2d");
+    const canvas = $("scope");
+    const ctx = canvas.getContext("2d");
 
-const startBtn = document.getElementById("start");
-const stopBtn = document.getElementById("stop");
-const sourceSel = document.getElementById("source");
-const waveSel = document.getElementById("waveType");
-const freqInput = document.getElementById("freq");
-const statusEl = document.getElementById("status");
+    const startMicBtn = $("startMicBtn");
+    const stopMicBtn  = $("stopMicBtn");
+    const startToneBtn = $("startToneBtn");
+    const stopToneBtn  = $("stopToneBtn");
+    const playFileBtn  = $("playFileBtn");
+    const stopFileBtn  = $("stopFileBtn");
+    const stopAllBtn   = $("stopAllBtn");
 
-const audioEls = {
-  audio1: document.getElementById("audio1"),
-  audio2: document.getElementById("audio2"),
-  audio3: document.getElementById("audio3")
-};
+    const scopeSourceSel = $("scopeSource");
+    const monitorModeSel = $("monitorMode");
 
-let audioCtx, analyser, osc, micStream, srcNode;
-let dataArray, raf;
+    const waveTypeSel = $("waveType");
+    const freqInput = $("freq");
+    const toneVol = $("toneVol");
+    const fileVol = $("fileVol");
+    const outVol = $("outVol");
+    const audioFileInput = $("audioFile");
 
-function resize() {
-  const dpr = devicePixelRatio || 1;
-  const r = canvas.getBoundingClientRect();
-  canvas.width = r.width * dpr;
-  canvas.height = r.height * dpr;
-}
-window.addEventListener("resize", resize);
-resize();
+    const timeScale = $("timeScale");
+    const smoothCtl = $("smooth");
+    const gainCtl = $("gain");
 
-function drawGrid() {
-  const w = canvas.width, h = canvas.height;
-  ctx.fillStyle = "#071018";
-  ctx.fillRect(0,0,w,h);
-  ctx.strokeStyle = "rgba(255,255,255,0.1)";
-  for (let i=1;i<10;i++){
-    ctx.beginPath();
-    ctx.moveTo(w*i/10,0);
-    ctx.lineTo(w*i/10,h);
-    ctx.stroke();
-  }
-  ctx.beginPath();
-  ctx.moveTo(0,h/2);
-  ctx.lineTo(w,h/2);
-  ctx.stroke();
-}
+    const statusEl = $("status");
+    const levelEl = $("level");
 
-function render() {
-  analyser.getByteTimeDomainData(dataArray);
-  drawGrid();
+    const timeScaleVal = $("timeScaleVal");
+    const smoothVal = $("smoothVal");
+    const gainVal = $("gainVal");
+    const freqVal = $("freqVal");
+    const toneVolVal = $("toneVolVal");
+    const fileVolVal = $("fileVolVal");
+    const outVolVal = $("outVolVal");
 
-  ctx.strokeStyle = "#84ccff";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
+    function setStatus(text) { statusEl.textContent = "Status: " + text; }
 
-  const w = canvas.width, h = canvas.height;
-  for (let i=0;i<dataArray.length;i++){
-    const x = i / (dataArray.length-1) * w;
-    const v = (dataArray[i]-128)/128;
-    const y = h/2 - v*h*0.4;
-    i===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-  }
-  ctx.stroke();
-  raf = requestAnimationFrame(render);
-}
+    // -----------------------------
+    // HiDPI canvas
+    // -----------------------------
+    function resizeCanvasForHiDPI() {
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const w = Math.floor(rect.width * dpr);
+      const h = Math.floor(rect.height * dpr);
+      if (canvas.width !== w || canvas.height !== h) {
+        canvas.width = w;
+        canvas.height = h;
+      }
+    }
+    window.addEventListener("resize", resizeCanvasForHiDPI);
+    resizeCanvasForHiDPI();
 
-async function start() {
-  stop();
-  audioCtx = new AudioContext();
-  analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 2048;
-  dataArray = new Uint8Array(analyser.fftSize);
+    function drawGrid() {
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#071018";
+      ctx.fillRect(0, 0, w, h);
 
-  const src = sourceSel.value;
+      // grid
+      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+      ctx.lineWidth = 1;
+      const vDiv = 10, hDiv = 8;
+      for (let i = 1; i < vDiv; i++) {
+        const x = (w * i) / vDiv;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, h); ctx.stroke();
+      }
+      for (let j = 1; j < hDiv; j++) {
+        const y = (h * j) / hDiv;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+      }
 
-  if (src === "mic") {
-    micStream = await navigator.mediaDevices.getUserMedia({audio:true});
-    srcNode = audioCtx.createMediaStreamSource(micStream);
-  }
-  else if (src === "tone") {
-    osc = audioCtx.createOscillator();
-    osc.type = waveSel.value;
-    osc.frequency.value = freqInput.value;
-    srcNode = osc;
-    osc.start();
-  }
-  else {
-    const el = audioEls[src];
-    el.currentTime = 0;
-    el.play();
-    srcNode = audioCtx.createMediaElementSource(el);
-  }
+      // center line
+      ctx.strokeStyle = "rgba(255,255,255,0.14)";
+      ctx.beginPath(); ctx.moveTo(0, h/2); ctx.lineTo(w, h/2); ctx.stroke();
+    }
 
-  srcNode.connect(analyser);
-  analyser.connect(audioCtx.destination);
+    function computeRMS(uint8) {
+      let sumSq = 0;
+      for (let i = 0; i < uint8.length; i++) {
+        const v = (uint8[i] - 128) / 128;
+        sumSq += v * v;
+      }
+      return Math.sqrt(sumSq / uint8.length);
+    }
 
-  statusEl.textContent = "Status: running (" + src + ")";
-  raf = requestAnimationFrame(render);
-}
+    // -----------------------------
+    // Web Audio graph
+    // -----------------------------
+    let audioCtx = null;
 
-function stop() {
-  cancelAnimationFrame(raf);
-  if (osc) { osc.stop(); osc.disconnect(); osc=null; }
-  if (micStream) {
-    micStream.getTracks().forEach(t=>t.stop());
-    micStream=null;
-  }
-  Object.values(audioEls).forEach(a=>a.pause());
-  if (audioCtx) audioCtx.close();
-  drawGrid();
-  statusEl.textContent = "Status: stopped";
-}
+    // Input nodes
+    let micStream = null;
+    let micSource = null;
 
-startBtn.onclick = start;
-stopBtn.onclick = stop;
-drawGrid();
-</script>
+    let oscNode = null;
+
+    let fileSource = null;     // AudioBufferSourceNode (one-shot)
+    let fileBuffer = null;     // decoded AudioBuffer
+
+    // Per-source gains into mix
+    let micGain = null;
+    let toneGain = null;
+    let fileGain = null;
+
+    // Mix and output
+    let mixBus = null;         // sums sources
+    let monitorGain = null;    // goes to speakers (controlled by outVol and monitorMode)
+
+    // Analysers for scope selection
+    let micAnalyser = null;
+    let toneAnalyser = null;
+    let fileAnalyser = null;
+    let mixAnalyser = null;
+
+    function ensureAudio() {
+      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      return audioCtx;
+    }
+
+    function ensureGraph() {
+      const ac = ensureAudio();
+
+      if (!mixBus) {
+        // gains
+        micGain = ac.createGain();
+        toneGain = ac.createGain();
+        fileGain = ac.createGain();
+
+        mixBus = ac.createGain();
+        monitorGain = ac.createGain();
+
+        // analysers
+        micAnalyser = ac.createAnalyser();
+        toneAnalyser = ac.createAnalyser();
+        fileAnalyser = ac.createAnalyser();
+        mixAnalyser = ac.createAnalyser();
+
+        // analyser defaults
+        const fftSize = 2048;
+        [micAnalyser, toneAnalyser, fileAnalyser, mixAnalyser].forEach(a => {
+          a.fftSize = fftSize;
+          a.smoothingTimeConstant = parseFloat(smoothCtl.value);
+        });
+
+        // Route each source: gain -> analyser AND gain -> mix
+        micGain.connect(micAnalyser);
+        micGain.connect(mixBus);
+
+        toneGain.connect(toneAnalyser);
+        toneGain.connect(mixBus);
+
+        fileGain.connect(fileAnalyser);
+        fileGain.connect(mixBus);
+
+        // mix -> analyser (for scope) and optionally -> speakers (monitor)
+        mixBus.connect(mixAnalyser);
+        mixBus.connect(monitorGain);
+        monitorGain.connect(ac.destination);
+
+        // initial volumes
+        toneGain.gain.value = parseFloat(toneVol.value);
+        fileGain.gain.value = parseFloat(fileVol.value);
+        monitorGain.gain.value = parseFloat(outVol.value);
+
+        applyMonitorMode();
+      }
+    }
+
+    async function resumeAudio() {
+      const ac = ensureAudio();
+      if (ac.state === "suspended") await ac.resume();
+    }
+
+    function applyMonitorMode() {
+      if (!monitorGain) return;
+      const mode = monitorModeSel.value;
+
+      // We do NOT route mic to speakers to avoid feedback.
+      // Monitoring is done from mixBus. So we "mute" sources inside the mix by setting their gains,
+      // but ONLY for monitoring purposes we'd need a separate monitor mix.
+      // To keep it simple: we keep the mix intact for scope, but control monitorGain overall and
+      // control tone/file audibility by gating toneGain/fileGain via additional monitor gates.
+      //
+      // Simpler approach: we keep per-source gains (toneGain/fileGain) as-is, and just decide whether
+      // they should be audible by scaling monitorGain and/or temporarily setting gains to 0.
+      //
+      // We'll implement a safe, intuitive rule:
+      // - "mute": monitorGain=0
+      // - "tone_only": temporarily set fileGain to 0 for monitoring, but keep its UI slider value stored
+      // - "file_only": temporarily set toneGain to 0
+      // - "tone_file": both active
+      //
+      // We preserve slider intent via stored desired values.
+      const desiredTone = parseFloat(toneVol.value);
+      const desiredFile = parseFloat(fileVol.value);
+
+      if (mode === "mute") {
+        monitorGain.gain.value = 0;
+        toneGain.gain.value = desiredTone; // keep for scope; audible is muted anyway
+        fileGain.gain.value = desiredFile;
+        return;
+      }
+
+      monitorGain.gain.value = parseFloat(outVol.value);
+
+      if (mode === "tone_only") {
+        toneGain.gain.value = desiredTone;
+        fileGain.gain.value = 0;
+      } else if (mode === "file_only") {
+        toneGain.gain.value = 0;
+        fileGain.gain.value = desiredFile;
+      } else { // tone_file
+        toneGain.gain.value = desiredTone;
+        fileGain.gain.value = desiredFile;
+      }
+    }
+
+    function clampFreq(f) {
+      if (!Number.isFinite(f)) return 440;
+      return Math.max(20, Math.min(20000, f));
+    }
+
+    // -----------------------------
+    // Mic controls
+    // -----------------------------
+    async function startMic() {
+      try {
+        ensureGraph();
+        await resumeAudio();
+        setStatus("requesting microphone…");
+
+        micStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: false,
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+
+        micSource = audioCtx.createMediaStreamSource(micStream);
+        micSource.connect(micGain);
+
+        startMicBtn.disabled = true;
+        stopMicBtn.disabled = false;
+
+        setStatus("mic running");
+      } catch (err) {
+        console.error(err);
+        setStatus("mic error: " + (err?.message || err));
+      }
+    }
+
+    function stopMic() {
+      if (micSource) {
+        try { micSource.disconnect(); } catch {}
+        micSource = null;
+      }
+      if (micStream) {
+        micStream.getTracks().forEach(t => t.stop());
+        micStream = null;
+      }
+      startMicBtn.disabled = false;
+      stopMicBtn.disabled = true;
+      setStatus(currentRunningStatus());
+    }
+
+    // -----------------------------
+    // Tone controls
+    // -----------------------------
+    async function startTone() {
+      ensureGraph();
+      await resumeAudio();
+
+      if (oscNode) return;
+
+      oscNode = audioCtx.createOscillator();
+      oscNode.type = waveTypeSel.value;
+      oscNode.frequency.value = clampFreq(parseFloat(freqInput.value));
+
+      oscNode.connect(toneGain);
+      oscNode.start();
+
+      startToneBtn.disabled = true;
+      stopToneBtn.disabled = false;
+
+      setStatus(currentRunningStatus());
+    }
+
+    function stopTone() {
+      if (!oscNode) return;
+      try { oscNode.stop(); } catch {}
+      try { oscNode.disconnect(); } catch {}
+      oscNode = null;
+
+      startToneBtn.disabled = false;
+      stopToneBtn.disabled = true;
+
+      setStatus(currentRunningStatus());
+    }
+
+    // -----------------------------
+    // File playback
+    // -----------------------------
+    async function loadSelectedFile() {
+      const files = audioFileInput.files;
+      if (!files || files.length === 0) return null;
+
+      ensureGraph();
+      await resumeAudio();
+
+      const file = files[0];
+      const arrayBuffer = await file.arrayBuffer();
+
+      // decodeAudioData can reject if format isn't supported
+      fileBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      return fileBuffer;
+    }
+
+    async function playFile() {
+      try {
+        ensureGraph();
+        await resumeAudio();
+
+        if (!fileBuffer) {
+          const b = await loadSelectedFile();
+          if (!b) {
+            setStatus("choose an audio file first");
+            return;
+          }
+        }
+
+        // AudioBufferSourceNode is one-shot; recreate each play
+        stopFile();
+
+        fileSource = audioCtx.createBufferSource();
+        fileSource.buffer = fileBuffer;
+
+        // Allow looping? (off by default)
+        fileSource.loop = false;
+
+        fileSource.connect(fileGain);
+        fileSource.start();
+
+        fileSource.onended = () => {
+          // Only update if we didn't stop it manually
+          if (fileSource) {
+            stopFileBtn.disabled = true;
+            fileSource = null;
+            setStatus(currentRunningStatus());
+          }
+        };
+
+        stopFileBtn.disabled = false;
+        setStatus(currentRunningStatus());
+      } catch (err) {
+        console.error(err);
+        setStatus("file error: " + (err?.message || err));
+      }
+    }
+
+    function stopFile() {
+      if (fileSource) {
+        try { fileSource.stop(); } catch {}
+        try { fileSource.disconnect(); } catch {}
+        fileSource = null;
+      }
+      stopFileBtn.disabled = true;
+      setStatus(currentRunningStatus());
+    }
+
+    // -----------------------------
+    // Stop all
+    // -----------------------------
+    function stopAll() {
+      stopFile();
+      stopTone();
+      stopMic();
+
+      // also mute monitor
+      if (monitorGain) monitorGain.gain.value = 0;
+
+      levelEl.textContent = "Level: —";
+      drawGrid();
+      setStatus("stopped");
+    }
+
+    function currentRunningStatus() {
+      const parts = [];
+      if (micStream) parts.push("mic");
+      if (oscNode) parts.push("tone");
+      if (fileSource) parts.push("file");
+      if (parts.length === 0) return "idle";
+      return parts.join(" + ") + " running";
+    }
+
+    // -----------------------------
+    // Scope rendering
+    // -----------------------------
+    let rafId = null;
+    let data = null;
+
+    function activeAnalyser() {
+      const mode = scopeSourceSel.value;
+      if (mode === "mic") return micAnalyser;
+      if (mode === "tone") return toneAnalyser;
+      if (mode === "file") return fileAnalyser;
+      return mixAnalyser; // mix
+    }
+
+    function render() {
+      const analyser = activeAnalyser();
+
+      drawGrid();
+
+      if (!analyser) {
+        rafId = requestAnimationFrame(render);
+        return;
+      }
+
+      const n = analyser.fftSize;
+      if (!data || data.length !== n) data = new Uint8Array(n);
+
+      analyser.getByteTimeDomainData(data);
+
+      const rms = computeRMS(data);
+      levelEl.textContent = "Level: " + rms.toFixed(3);
+
+      const w = canvas.width, h = canvas.height;
+      const gain = parseFloat(gainCtl.value);
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(132,204,255,0.95)";
+      ctx.beginPath();
+
+      const samplesToShow = Math.min(parseInt(timeScale.value, 10), n);
+      const start = Math.max(0, Math.floor((n - samplesToShow) / 2));
+
+      for (let i = 0; i < samplesToShow; i++) {
+        const idx = start + i;
+        const x = (i / (samplesToShow - 1)) * w;
+        const v = (data[idx] - 128) / 128;
+        const y = (h / 2) - v * (h * 0.40) * gain;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      rafId = requestAnimationFrame(render);
+    }
+
+    // -----------------------------
+    // UI sync
+    // -----------------------------
+    function syncUI() {
+      timeScaleVal.textContent = timeScale.value;
+      smoothVal.textContent = smoothCtl.value;
+      gainVal.textContent = gainCtl.value;
+
+      const f = clampFreq(parseFloat(freqInput.value));
+      freqInput.value = f;
+      freqVal.textContent = String(f);
+
+      toneVolVal.textContent = Number(toneVol.value).toFixed(2);
+      fileVolVal.textContent = Number(fileVol.value).toFixed(2);
+      outVolVal.textContent = Number(outVol.value).toFixed(2);
+
+      if (micAnalyser) micAnalyser.smoothingTimeConstant = parseFloat(smoothCtl.value);
+      if (toneAnalyser) toneAnalyser.smoothingTimeConstant = parseFloat(smoothCtl.value);
+      if (fileAnalyser) fileAnalyser.smoothingTimeConstant = parseFloat(smoothCtl.value);
+      if (mixAnalyser) mixAnalyser.smoothingTimeConstant = parseFloat(smoothCtl.value);
+
+      // Update oscillator live
+      if (oscNode) {
+        oscNode.type = waveTypeSel.value;
+        oscNode.frequency.setValueAtTime(f, audioCtx.currentTime);
+      }
+
+      // Update gains
+      if (toneGain && fileGain && monitorGain) {
+        // Apply monitor mode which handles gating rules
+        applyMonitorMode();
+        // output volume slider always applied unless muted
+        if (monitorModeSel.value !== "mute") {
+          monitorGain.gain.setValueAtTime(parseFloat(outVol.value), audioCtx ? audioCtx.currentTime : 0);
+        }
+      }
+    }
+
+    // -----------------------------
+    // Wire events
+    // -----------------------------
+    startMicBtn.addEventListener("click", startMic);
+    stopMicBtn.addEventListener("click", stopMic);
+
+    startToneBtn.addEventListener("click", startTone);
+    stopToneBtn.addEventListener("click", stopTone);
+
+    playFileBtn.addEventListener("click", playFile);
+    stopFileBtn.addEventListener("click", stopFile);
+
+    stopAllBtn.addEventListener("click", stopAll);
+
+    // If user selects a new file, clear previous buffer and stop playback
+    audioFileInput.addEventListener("change", () => {
+      fileBuffer = null;
+      stopFile();
+      setStatus(currentRunningStatus());
+    });
+
+    // Controls
+    [
+      timeScale, smoothCtl, gainCtl,
+      freqInput, toneVol, fileVol, outVol,
+      waveTypeSel, scopeSourceSel, monitorModeSel
+    ].forEach(el => {
+      el.addEventListener("input", syncUI);
+      el.addEventListener("change", syncUI);
+    });
+
+    // Initial state + start render loop
+    syncUI();
+    drawGrid();
+    cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(render);
+
+    // Cleanup
+    window.addEventListener("beforeunload", () => {
+      try { stopAll(); } catch {}
+    });
+  </script>
 </body>
 </html>
