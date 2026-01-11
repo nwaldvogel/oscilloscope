@@ -48,7 +48,8 @@
       padding: 12px;
     }
     .controls { display: grid; gap: 10px; }
-    .btns { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    .btns { display: flex; gap: 10px; align-items: center; }
+    .btn-row { display:flex; justify-content:flex-start; gap:10px; }
     button {
       appearance: none;
       border: 1px solid #2b3a4e;
@@ -99,19 +100,40 @@
       <div class="panel">
         <div class="controls">
 
-          <div class="btns">
-            <button id="startMicBtn" class="primary">Start Mic</button>
-            <button id="stopMicBtn" disabled>Stop Mic</button>
-
-            <button id="startToneBtn" class="warn">Start Tone</button>
-            <button id="stopToneBtn" disabled>Stop Tone</button>
-
-            <button id="playFileBtn">Play File</button>
-            <button id="stopFileBtn" disabled>Stop File</button>
-
-            <button id="stopAllBtn">Stop All</button>
+          <!-- Row 1: Mic controls -->
+          <div class="btn-row">
+            <div class="btns">
+              <button id="startMicBtn" class="primary">Start Mic</button>
+              <button id="stopMicBtn" disabled>Stop Mic</button>
+            </div>
           </div>
 
+          <!-- Row 2: Tone controls -->
+          <div class="btn-row">
+            <div class="btns">
+              <button id="startToneBtn" class="warn">Start Tone</button>
+              <button id="stopToneBtn" disabled>Stop Tone</button>
+            </div>
+          </div>
+
+          <!-- Row 3: File chooser -->
+          <div class="btn-row">
+            <label style="width:100%;">
+              Choose audio file (mp3/wav/aac/etc.)
+              <input id="audioFile" type="file" accept="audio/*" />
+            </label>
+          </div>
+
+          <!-- Row 4: Stop all -->
+          <div class="btn-row">
+            <div class="btns">
+              <button id="stopAllBtn">Stop All</button>
+            </div>
+          </div>
+
+          <div class="hr"></div>
+
+          <!-- Other controls at the bottom -->
           <div class="grid2">
             <label>
               Scope input
@@ -166,13 +188,6 @@
               <div class="stat"><span id="fileVolVal">0.70</span></div>
             </label>
           </div>
-
-          <label>
-            Choose audio file (mp3/wav/aac/etc.)
-            <input id="audioFile" type="file" accept="audio/*" />
-          </label>
-
-          <div class="hr"></div>
 
           <div class="hint">
             If mic permission fails when opened as a local file, run a local server:
@@ -646,7 +661,7 @@
       freqVal.textContent = String(f);
 
       toneVolVal.textContent = Number(toneVol.value).toFixed(2);
-      fileVolVal.textContent = Number(fileVol.value).toFixed(2);
+      fileVolVal.textContent = Number(fileVol.value).toFixed(02);
 
       // Update oscillator live
       if (oscNode) {
@@ -670,7 +685,10 @@
     startToneBtn.addEventListener("click", startTone);
     stopToneBtn.addEventListener("click", stopTone);
 
-    playFileBtn.addEventListener("click", playFile);
+    // Keep original play/stop file buttons: create playFileBtn and stopFileBtn if missing
+    // If playFileBtn isn't in the layout, create a handler for file input double-click (not necessary)
+    const playFileBtnRef = document.getElementById("playFileBtn");
+    if (playFileBtnRef) playFileBtnRef.addEventListener("click", playFile);
     stopFileBtn.addEventListener("click", stopFile);
 
     stopAllBtn.addEventListener("click", stopAll);
