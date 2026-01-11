@@ -174,34 +174,6 @@
 
           <div class="hr"></div>
 
-          <div class="grid2">
-            <label>
-              Time scale (samples shown)
-              <input id="timeScale" type="range" min="256" max="4096" step="128" value="2048" />
-              <div class="stat"><span id="timeScaleVal">2048</span> samples</div>
-            </label>
-
-            <label>
-              Smoothing (0–0.9)
-              <input id="smooth" type="range" min="0" max="0.9" step="0.05" value="0.15" />
-              <div class="stat"><span id="smoothVal">0.15</span></div>
-            </label>
-          </div>
-
-          <div class="grid2">
-            <label>
-              Visual gain
-              <input id="gain" type="range" min="0.5" max="8" step="0.1" value="1.8" />
-              <div class="stat">×<span id="gainVal">1.8</span></div>
-            </label>
-
-            <label>
-              Output volume (monitor)
-              <input id="outVol" type="range" min="0" max="1" step="0.01" value="0.6" />
-              <div class="stat"><span id="outVolVal">0.60</span></div>
-            </label>
-          </div>
-
           <div class="hint">
             If mic permission fails when opened as a local file, run a local server:
             <code>python3 -m http.server</code> and open <code>http://localhost:8000</code>.
@@ -248,23 +220,14 @@
     const freqInput = $("freq");
     const toneVol = $("toneVol");
     const fileVol = $("fileVol");
-    const outVol = $("outVol");
     const audioFileInput = $("audioFile");
-
-    const timeScale = $("timeScale");
-    const smoothCtl = $("smooth");
-    const gainCtl = $("gain");
 
     const statusEl = $("status");
     const levelEl = $("level");
 
-    const timeScaleVal = $("timeScaleVal");
-    const smoothVal = $("smoothVal");
-    const gainVal = $("gainVal");
     const freqVal = $("freqVal");
     const toneVolVal = $("toneVolVal");
     const fileVolVal = $("fileVolVal");
-    const outVolVal = $("outVolVal");
 
     function setStatus(text) { statusEl.textContent = "Status: " + text; }
 
@@ -338,13 +301,18 @@
 
     // Mix and output
     let mixBus = null;         // sums sources
-    let monitorGain = null;    // goes to speakers (controlled by outVol and monitorMode)
+    let monitorGain = null;    // goes to speakers (controlled by monitor mode)
 
     // Analysers for scope selection
     let micAnalyser = null;
     let toneAnalyser = null;
     let fileAnalyser = null;
     let mixAnalyser = null;
+
+    // Defaults now that sliders are removed
+    const DEFAULT_SMOOTH = 0.15;
+    const DEFAULT_GAIN = 1.8;
+    const DEFAULT_OUT_VOL = 0.6;
 
     function ensureAudio() {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -373,7 +341,7 @@
         const fftSize = 2048;
         [micAnalyser, toneAnalyser, fileAnalyser, mixAnalyser].forEach(a => {
           a.fftSize = fftSize;
-          a.smoothingTimeConstant = parseFloat(smoothCtl.value);
+          a.smoothingTimeConstant = DEFAULT_SMOOTH;
         });
 
         // Route each source: gain -> analyser AND gain -> mix
@@ -394,7 +362,7 @@
         // initial volumes
         toneGain.gain.value = parseFloat(toneVol.value);
         fileGain.gain.value = parseFloat(fileVol.value);
-        monitorGain.gain.value = parseFloat(outVol.value);
+        monitorGain.gain.value = DEFAULT_OUT_VOL;
 
         applyMonitorMode();
       }
@@ -410,32 +378,18 @@
       const mode = monitorModeSel.value;
 
       // We do NOT route mic to speakers to avoid feedback.
-      // Monitoring is done from mixBus. So we "mute" sources inside the mix by setting their gains,
-      // but ONLY for monitoring purposes we'd need a separate monitor mix.
-      // To keep it simple: we keep the mix intact for scope, but control monitorGain overall and
-      // control tone/file audibility by gating toneGain/fileGain via additional monitor gates.
-      //
-      // Simpler approach: we keep per-source gains (toneGain/fileGain) as-is, and just decide whether
-      // they should be audible by scaling monitorGain and/or temporarily setting gains to 0.
-      //
-      // We'll implement a safe, intuitive rule:
-      // - "mute": monitorGain=0
-      // - "tone_only": temporarily set fileGain to 0 for monitoring, but keep its UI slider value stored
-      // - "file_only": temporarily set toneGain to 0
-      // - "tone_file": both active
-      //
-      // We preserve slider intent via stored desired values.
+      // Keep per-source gains for scope; for monitoring we gate tone/file by setting their gains appropriately.
       const desiredTone = parseFloat(toneVol.value);
       const desiredFile = parseFloat(fileVol.value);
 
       if (mode === "mute") {
         monitorGain.gain.value = 0;
-        toneGain.gain.value = desiredTone; // keep for scope; audible is muted anyway
+        toneGain.gain.value = desiredTone; // preserve for scope; monitor is muted
         fileGain.gain.value = desiredFile;
         return;
       }
 
-      monitorGain.gain.value = parseFloat(outVol.value);
+      monitorGain.gain.value = DEFAULT_OUT_VOL;
 
       if (mode === "tone_only") {
         toneGain.gain.value = desiredTone;
@@ -660,14 +614,15 @@
       levelEl.textContent = "Level: " + rms.toFixed(3);
 
       const w = canvas.width, h = canvas.height;
-      const gain = parseFloat(gainCtl.value);
+      const gain = DEFAULT_GAIN;
 
       ctx.lineWidth = 2;
       ctx.strokeStyle = "rgba(132,204,255,0.95)";
       ctx.beginPath();
 
-      const samplesToShow = Math.min(parseInt(timeScale.value, 10), n);
-      const start = Math.max(0, Math.floor((n - samplesToShow) / 2));
+      // show full analyser buffer
+      const samplesToShow = n;
+      const start = 0;
 
       for (let i = 0; i < samplesToShow; i++) {
         const idx = start + i;
@@ -686,22 +641,12 @@
     // UI sync
     // -----------------------------
     function syncUI() {
-      timeScaleVal.textContent = timeScale.value;
-      smoothVal.textContent = smoothCtl.value;
-      gainVal.textContent = gainCtl.value;
-
       const f = clampFreq(parseFloat(freqInput.value));
       freqInput.value = f;
       freqVal.textContent = String(f);
 
       toneVolVal.textContent = Number(toneVol.value).toFixed(2);
       fileVolVal.textContent = Number(fileVol.value).toFixed(2);
-      outVolVal.textContent = Number(outVol.value).toFixed(2);
-
-      if (micAnalyser) micAnalyser.smoothingTimeConstant = parseFloat(smoothCtl.value);
-      if (toneAnalyser) toneAnalyser.smoothingTimeConstant = parseFloat(smoothCtl.value);
-      if (fileAnalyser) fileAnalyser.smoothingTimeConstant = parseFloat(smoothCtl.value);
-      if (mixAnalyser) mixAnalyser.smoothingTimeConstant = parseFloat(smoothCtl.value);
 
       // Update oscillator live
       if (oscNode) {
@@ -713,10 +658,6 @@
       if (toneGain && fileGain && monitorGain) {
         // Apply monitor mode which handles gating rules
         applyMonitorMode();
-        // output volume slider always applied unless muted
-        if (monitorModeSel.value !== "mute") {
-          monitorGain.gain.setValueAtTime(parseFloat(outVol.value), audioCtx ? audioCtx.currentTime : 0);
-        }
       }
     }
 
@@ -743,8 +684,7 @@
 
     // Controls
     [
-      timeScale, smoothCtl, gainCtl,
-      freqInput, toneVol, fileVol, outVol,
+      freqInput, toneVol, fileVol,
       waveTypeSel, scopeSourceSel, monitorModeSel
     ].forEach(el => {
       el.addEventListener("input", syncUI);
