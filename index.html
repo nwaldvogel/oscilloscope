@@ -49,7 +49,9 @@
     }
     .controls { display: grid; gap: 10px; }
     .btns { display: flex; gap: 10px; align-items: center; }
-    .btn-row { display:flex; justify-content:flex-start; gap:10px; }
+    .btn-row { display:flex; justify-content:flex-start; gap:10px; align-items:center; }
+    .tone-controls { display:flex; gap:12px; align-items:center; }
+    .tone-controls > label { margin: 0; }
     button {
       appearance: none;
       border: 1px solid #2b3a4e;
@@ -108,11 +110,27 @@
             </div>
           </div>
 
-          <!-- Row 2: Tone controls -->
+          <!-- Row 2: Tone controls with tone settings to the left -->
           <div class="btn-row">
-            <div class="btns">
-              <button id="startToneBtn" class="warn">Start Tone</button>
-              <button id="stopToneBtn" disabled>Stop Tone</button>
+            <div class="tone-controls">
+              <label style="min-width:220px;">
+                Tone waveform
+                <select id="waveType">
+                  <option value="sine">Sine</option>
+                  <option value="square">Square</option>
+                </select>
+              </label>
+
+              <label style="width:180px;">
+                Tone frequency (Hz)
+                <input id="freq" type="number" min="20" max="20000" step="1" value="440" />
+                <div class="stat"><span id="freqVal">440</span> Hz</div>
+              </label>
+
+              <div class="btns" style="margin-left:8px;">
+                <button id="startToneBtn" class="warn">Start Tone</button>
+                <button id="stopToneBtn" disabled>Stop Tone</button>
+              </div>
             </div>
           </div>
 
@@ -133,48 +151,7 @@
 
           <div class="hr"></div>
 
-          <!-- Other controls at the bottom -->
-          <div class="grid2">
-            <label>
-              Scope input
-              <select id="scopeSource">
-                <option value="mix">Mix (mic + tone + file)</option>
-                <option value="mic">Mic only</option>
-                <option value="tone">Tone only</option>
-                <option value="file">File only</option>
-              </select>
-            </label>
-
-            <label>
-              Output (speakers)
-              <select id="monitorMode">
-                <option value="tone_file">Play tone + file</option>
-                <option value="file_only">Play file only</option>
-                <option value="tone_only">Play tone only</option>
-                <option value="mute">Mute all</option>
-              </select>
-              <div class="tiny">Mic monitoring is off by default to avoid feedback.</div>
-            </label>
-          </div>
-
-          <div class="hr"></div>
-
-          <div class="grid2">
-            <label>
-              Tone waveform
-              <select id="waveType">
-                <option value="sine">Sine</option>
-                <option value="square">Square</option>
-              </select>
-            </label>
-
-            <label>
-              Tone frequency (Hz)
-              <input id="freq" type="number" min="20" max="20000" step="1" value="440" />
-              <div class="stat"><span id="freqVal">440</span> Hz</div>
-            </label>
-          </div>
-
+          <!-- Other controls at the bottom (play/stop file, volumes, etc.) -->
           <div class="grid2">
             <label>
               Tone volume
@@ -188,6 +165,13 @@
               <div class="stat"><span id="fileVolVal">0.70</span></div>
             </label>
           </div>
+
+          <div style="margin-top:6px; display:flex; gap:10px;">
+            <button id="playFileBtn">Play File</button>
+            <button id="stopFileBtn" disabled>Stop File</button>
+          </div>
+
+          <div class="hr"></div>
 
           <div class="hint">
             If mic permission fails when opened as a local file, run a local server:
@@ -204,7 +188,7 @@
           <ul>
             <li>Use “Tone only” to verify audio output.</li>
             <li>For stable-looking waves, try 220–880 Hz.</li>
-            <li>If you hear feedback, set Output to “Play tone + file” (default) and keep mic monitoring off.</li>
+            <li>If you hear feedback, keep mic monitoring off.</li>
           </ul>
         </div>
       </div>
@@ -227,9 +211,6 @@
     const playFileBtn  = $("playFileBtn");
     const stopFileBtn  = $("stopFileBtn");
     const stopAllBtn   = $("stopAllBtn");
-
-    const scopeSourceSel = $("scopeSource");
-    const monitorModeSel = $("monitorMode");
 
     const waveTypeSel = $("waveType");
     const freqInput = $("freq");
@@ -316,7 +297,7 @@
 
     // Mix and output
     let mixBus = null;         // sums sources
-    let monitorGain = null;    // goes to speakers (controlled by monitor mode)
+    let monitorGain = null;    // goes to speakers
 
     // Analysers for scope selection
     let micAnalyser = null;
@@ -324,7 +305,7 @@
     let fileAnalyser = null;
     let mixAnalyser = null;
 
-    // Defaults now that sliders are removed
+    // Defaults
     const DEFAULT_SMOOTH = 0.15;
     const DEFAULT_GAIN = 1.8;
     const DEFAULT_OUT_VOL = 0.6;
@@ -369,7 +350,7 @@
         fileGain.connect(fileAnalyser);
         fileGain.connect(mixBus);
 
-        // mix -> analyser (for scope) and optionally -> speakers (monitor)
+        // mix -> analyser (for scope) and -> speakers
         mixBus.connect(mixAnalyser);
         mixBus.connect(monitorGain);
         monitorGain.connect(ac.destination);
@@ -390,32 +371,10 @@
 
     function applyMonitorMode() {
       if (!monitorGain) return;
-      const mode = monitorModeSel.value;
-
-      // We do NOT route mic to speakers to avoid feedback.
-      // Keep per-source gains for scope; for monitoring we gate tone/file by setting their gains appropriately.
-      const desiredTone = parseFloat(toneVol.value);
-      const desiredFile = parseFloat(fileVol.value);
-
-      if (mode === "mute") {
-        monitorGain.gain.value = 0;
-        toneGain.gain.value = desiredTone; // preserve for scope; monitor is muted
-        fileGain.gain.value = desiredFile;
-        return;
-      }
-
+      // Simplified: always allow tone+file to be audible according to slider values.
       monitorGain.gain.value = DEFAULT_OUT_VOL;
-
-      if (mode === "tone_only") {
-        toneGain.gain.value = desiredTone;
-        fileGain.gain.value = 0;
-      } else if (mode === "file_only") {
-        toneGain.gain.value = 0;
-        fileGain.gain.value = desiredFile;
-      } else { // tone_file
-        toneGain.gain.value = desiredTone;
-        fileGain.gain.value = desiredFile;
-      }
+      toneGain.gain.value = parseFloat(toneVol.value);
+      fileGain.gain.value = parseFloat(fileVol.value);
     }
 
     function clampFreq(f) {
@@ -567,7 +526,7 @@
         try { fileSource.disconnect(); } catch {}
         fileSource = null;
       }
-      stopFileBtn.disabled = true;
+      if (stopFileBtn) stopFileBtn.disabled = true;
       setStatus(currentRunningStatus());
     }
 
@@ -603,11 +562,8 @@
     let data = null;
 
     function activeAnalyser() {
-      const mode = scopeSourceSel.value;
-      if (mode === "mic") return micAnalyser;
-      if (mode === "tone") return toneAnalyser;
-      if (mode === "file") return fileAnalyser;
-      return mixAnalyser; // mix
+      // scope input removed; always show mixed signal
+      return mixAnalyser;
     }
 
     function render() {
@@ -661,7 +617,7 @@
       freqVal.textContent = String(f);
 
       toneVolVal.textContent = Number(toneVol.value).toFixed(2);
-      fileVolVal.textContent = Number(fileVol.value).toFixed(02);
+      fileVolVal.textContent = Number(fileVol.value).toFixed(2);
 
       // Update oscillator live
       if (oscNode) {
@@ -671,7 +627,7 @@
 
       // Update gains
       if (toneGain && fileGain && monitorGain) {
-        // Apply monitor mode which handles gating rules
+        // Apply simplified monitor behavior
         applyMonitorMode();
       }
     }
@@ -685,11 +641,8 @@
     startToneBtn.addEventListener("click", startTone);
     stopToneBtn.addEventListener("click", stopTone);
 
-    // Keep original play/stop file buttons: create playFileBtn and stopFileBtn if missing
-    // If playFileBtn isn't in the layout, create a handler for file input double-click (not necessary)
-    const playFileBtnRef = document.getElementById("playFileBtn");
-    if (playFileBtnRef) playFileBtnRef.addEventListener("click", playFile);
-    stopFileBtn.addEventListener("click", stopFile);
+    if (playFileBtn) playFileBtn.addEventListener("click", playFile);
+    if (stopFileBtn) stopFileBtn.addEventListener("click", stopFile);
 
     stopAllBtn.addEventListener("click", stopAll);
 
@@ -702,8 +655,7 @@
 
     // Controls
     [
-      freqInput, toneVol, fileVol,
-      waveTypeSel, scopeSourceSel, monitorModeSel
+      freqInput, toneVol, fileVol, waveTypeSel
     ].forEach(el => {
       el.addEventListener("input", syncUI);
       el.addEventListener("change", syncUI);
