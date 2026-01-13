@@ -39,7 +39,7 @@
       margin-top: 14px;
     }
     @media (min-width: 950px) {
-      .row { grid-template-columns: 1.2fr 0.8fr; }
+      .row { grid-template-columns: 1fr; }
     }
     .panel {
       background: #0b121b;
@@ -86,6 +86,15 @@
     .hint { font-size: 12px; color: #8aa0b5; line-height: 1.35; }
     .tiny { font-size: 11px; color: #7f93a8; }
     .hr { height: 1px; background: #1f2a37; margin: 8px 0; }
+
+    /* New / adjusted styles for inline file input + play button */
+    .file-row { display:flex; gap:10px; align-items:center; width:100%; }
+    .file-input-label { flex:1; min-width:0; } /* min-width:0 to allow flex child to shrink properly */
+    .file-input-label input[type="file"] { width:100%; }
+    .file-action-btns { display:flex; gap:8px; align-items:center; }
+    .bottom-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:8px; }
+    .small-note { font-size:12px; color:#9fb0c0; }
+    .status-row { display:flex; gap:12px; align-items:center; justify-content:flex-start; flex-wrap:wrap; }
   </style>
 </head>
 <body>
@@ -101,6 +110,12 @@
     <div class="row">
       <div class="panel">
         <div class="controls">
+
+          <!-- Status / level moved into main panel (sidebar removed) -->
+          <div class="status-row">
+            <div class="stat" id="status">Status: idle</div>
+            <div class="stat" id="level">Level: —</div>
+          </div>
 
           <!-- Row 1: Mic controls -->
           <div class="btn-row">
@@ -134,62 +149,35 @@
             </div>
           </div>
 
-          <!-- Row 3: File chooser -->
+          <!-- Row 3: File chooser + Play File to the right -->
           <div class="btn-row">
-            <label style="width:100%;">
-              Choose audio file (mp3/wav/aac/etc.)
-              <input id="audioFile" type="file" accept="audio/*" />
-            </label>
-          </div>
+            <div class="file-row" style="width:100%;">
+              <label class="file-input-label">
+                Choose audio file (mp3/wav/aac/etc.)
+                <input id="audioFile" type="file" accept="audio/*" />
+              </label>
 
-          <!-- Row 4: Stop all -->
-          <div class="btn-row">
-            <div class="btns">
-              <button id="stopAllBtn">Stop All</button>
+              <div class="file-action-btns">
+                <button id="playFileBtn">Play File</button>
+                <button id="stopFileBtn" disabled>Stop File</button>
+              </div>
             </div>
           </div>
 
           <div class="hr"></div>
 
-          <!-- Other controls at the bottom (play/stop file, volumes, etc.) -->
-          <div class="grid2">
-            <label>
-              Tone volume
-              <input id="toneVol" type="range" min="0" max="1" step="0.01" value="0.25" />
-              <div class="stat"><span id="toneVolVal">0.25</span></div>
-            </label>
+          <!-- Note: Tone/File volume controls removed per request -->
 
-            <label>
-              File volume
-              <input id="fileVol" type="range" min="0" max="1" step="0.01" value="0.7" />
-              <div class="stat"><span id="fileVolVal">0.70</span></div>
-            </label>
+          <!-- Optional tiny note area (kept minimal) -->
+          <div class="small-note">Use the controls above to start/stop mic, tone, and play files.</div>
+
+          <!-- Stop All moved to the bottom -->
+          <div class="bottom-actions">
+            <div class="btns">
+              <button id="stopAllBtn">Stop All</button>
+            </div>
           </div>
 
-          <div style="margin-top:6px; display:flex; gap:10px;">
-            <button id="playFileBtn">Play File</button>
-            <button id="stopFileBtn" disabled>Stop File</button>
-          </div>
-
-          <div class="hr"></div>
-
-          <div class="hint">
-            If mic permission fails when opened as a local file, run a local server:
-            <code>python3 -m http.server</code> and open <code>http://localhost:8000</code>.
-          </div>
-        </div>
-      </div>
-
-      <div class="panel">
-        <div class="stat" id="status">Status: idle</div>
-        <div class="stat" id="level">Level: —</div>
-        <div class="hint" style="margin-top:10px;">
-          Tips:
-          <ul>
-            <li>Use “Tone only” to verify audio output.</li>
-            <li>For stable-looking waves, try 220–880 Hz.</li>
-            <li>If you hear feedback, keep mic monitoring off.</li>
-          </ul>
         </div>
       </div>
     </div>
@@ -214,18 +202,15 @@
 
     const waveTypeSel = $("waveType");
     const freqInput = $("freq");
-    const toneVol = $("toneVol");
-    const fileVol = $("fileVol");
     const audioFileInput = $("audioFile");
 
+    // Status/level elements (moved into main panel)
     const statusEl = $("status");
     const levelEl = $("level");
 
     const freqVal = $("freqVal");
-    const toneVolVal = $("toneVolVal");
-    const fileVolVal = $("fileVolVal");
 
-    function setStatus(text) { statusEl.textContent = "Status: " + text; }
+    function setStatus(text) { if (statusEl) statusEl.textContent = "Status: " + text; }
 
     // -----------------------------
     // HiDPI canvas
@@ -309,6 +294,8 @@
     const DEFAULT_SMOOTH = 0.15;
     const DEFAULT_GAIN = 1.8;
     const DEFAULT_OUT_VOL = 0.6;
+    const DEFAULT_TONE_VOL = 0.25; // previously from UI
+    const DEFAULT_FILE_VOL = 0.70; // previously from UI
 
     function ensureAudio() {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -355,9 +342,9 @@
         mixBus.connect(monitorGain);
         monitorGain.connect(ac.destination);
 
-        // initial volumes
-        toneGain.gain.value = parseFloat(toneVol.value);
-        fileGain.gain.value = parseFloat(fileVol.value);
+        // initial volumes (UI sliders removed so use defaults)
+        toneGain.gain.value = DEFAULT_TONE_VOL;
+        fileGain.gain.value = DEFAULT_FILE_VOL;
         monitorGain.gain.value = DEFAULT_OUT_VOL;
 
         applyMonitorMode();
@@ -371,10 +358,10 @@
 
     function applyMonitorMode() {
       if (!monitorGain) return;
-      // Simplified: always allow tone+file to be audible according to slider values.
+      // Use fixed default per-source volumes (sliders removed)
       monitorGain.gain.value = DEFAULT_OUT_VOL;
-      toneGain.gain.value = parseFloat(toneVol.value);
-      fileGain.gain.value = parseFloat(fileVol.value);
+      if (toneGain) toneGain.gain.value = DEFAULT_TONE_VOL;
+      if (fileGain) fileGain.gain.value = DEFAULT_FILE_VOL;
     }
 
     function clampFreq(f) {
@@ -541,7 +528,7 @@
       // also mute monitor
       if (monitorGain) monitorGain.gain.value = 0;
 
-      levelEl.textContent = "Level: —";
+      if (levelEl) levelEl.textContent = "Level: —";
       drawGrid();
       setStatus("stopped");
     }
@@ -582,7 +569,7 @@
       analyser.getByteTimeDomainData(data);
 
       const rms = computeRMS(data);
-      levelEl.textContent = "Level: " + rms.toFixed(3);
+      if (levelEl) levelEl.textContent = "Level: " + rms.toFixed(3);
 
       const w = canvas.width, h = canvas.height;
       const gain = DEFAULT_GAIN;
@@ -614,10 +601,7 @@
     function syncUI() {
       const f = clampFreq(parseFloat(freqInput.value));
       freqInput.value = f;
-      freqVal.textContent = String(f);
-
-      toneVolVal.textContent = Number(toneVol.value).toFixed(2);
-      fileVolVal.textContent = Number(fileVol.value).toFixed(2);
+      if (freqVal) freqVal.textContent = String(f);
 
       // Update oscillator live
       if (oscNode) {
@@ -625,9 +609,8 @@
         oscNode.frequency.setValueAtTime(f, audioCtx.currentTime);
       }
 
-      // Update gains
+      // Update gains (no sliders, apply defaults)
       if (toneGain && fileGain && monitorGain) {
-        // Apply simplified monitor behavior
         applyMonitorMode();
       }
     }
@@ -654,9 +637,7 @@
     });
 
     // Controls
-    [
-      freqInput, toneVol, fileVol, waveTypeSel
-    ].forEach(el => {
+    [ freqInput, waveTypeSel ].forEach(el => {
       el.addEventListener("input", syncUI);
       el.addEventListener("change", syncUI);
     });
