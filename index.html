@@ -49,7 +49,7 @@
     }
     .controls { display: grid; gap: 10px; }
     .btns { display: flex; gap: 10px; align-items: center; }
-    .btn-row { display:flex; justify-content:flex-start; gap:10px; align-items:center; }
+    .ow { display:flex; justify-content:flex-start; gap:10px; align-items:center; }
     .tone-controls { display:flex; gap:12px; align-items:center; }
     .tone-controls > label { margin: 0; }
     button {
@@ -118,7 +118,8 @@
           </div>
 
           <!-- Row 1: Mic controls -->
-          <div class="btn-row">
+          <div class="btn-row" style="
+    background-color: grey;">
             <div class="btns">
               <button id="startMicBtn" class="primary">Start Mic</button>
               <button id="stopMicBtn" disabled>Stop Mic</button>
@@ -126,7 +127,8 @@
           </div>
 
           <!-- Row 2: Tone controls with tone settings to the left -->
-          <div class="btn-row">
+          <div class="btn-row" style="
+    background-color: lightblue;">
             <div class="tone-controls">
               <label style="min-width:220px;">
                 Tone waveform
@@ -150,7 +152,8 @@
           </div>
 
           <!-- Row 3: File chooser + Play File to the right -->
-          <div class="btn-row">
+          <div class="btn-row" style="
+    background-color: blanchedalmond;">
             <div class="file-row" style="width:100%;">
               <label class="file-input-label">
                 Choose audio file (mp3/wav/aac/etc.)
