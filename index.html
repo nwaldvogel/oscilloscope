@@ -192,7 +192,6 @@
     const stopToneBtn  = $("stopToneBtn");
     const playFileBtn  = $("playFileBtn");
     const stopFileBtn  = $("stopFileBtn");
-    const stopAllBtn   = $("stopAllBtn");
 
     const waveTypeSel = $("waveType");
     const freqInput = $("freq");
@@ -620,8 +619,6 @@
 
     if (playFileBtn) playFileBtn.addEventListener("click", playFile);
     if (stopFileBtn) stopFileBtn.addEventListener("click", stopFile);
-
-    stopAllBtn.addEventListener("click", stopAll);
 
     // If user selects a new file, clear previous buffer and stop playback
     audioFileInput.addEventListener("change", () => {
